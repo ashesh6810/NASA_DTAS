@@ -160,9 +160,9 @@ class FNO2d(nn.Module):
 ################################################################
 # configs
 ################################################################
-path_outputs = '/media/volume/sdb/heat_flux/outputs/'
+path_outputs = '/media/volume/sdb/NASA_DTAS/outputs/'
 
-FF=nc.Dataset('/media/volume/sdb/heat_flux/MSLHFdeg_0252019.nc')
+FF=nc.Dataset('/media/volume/sdb/NASA_DTAS/MSLHF_large_domain/MSLHFdeg_0252019.nc')
 
 lead = 1
 
@@ -229,7 +229,9 @@ def directstep(net,input_batch):
   return output_1
 
 
-
+def PECstep(net,input_batch):
+ output_1 = net(input_batch.cuda()) + input_batch.cuda()
+ return input_batch.cuda() + 0.5*(net(input_batch.cuda())+net(output_1))
 
 
 
@@ -269,7 +271,7 @@ for epoch in range(0, num_epochs):  # loop over the dataset multiple times
  for k in range(1992,2019):
   print('File index',k)
 
-  G = nc.Dataset('/media/volume/sdb/heat_flux/MSLHFdeg_025'+str(k)+'.nc')
+  G = nc.Dataset('/media/volume/sdb/NASA_DTAS/MSLHF_large_domain/MSLHFdeg_025'+str(k)+'.nc')
   trainN=8500
   psi_train_input_Tr_torch, psi_train_label_Tr_torch, ocean_grid  = load_train_data(G,lead,trainN)
   print('Ocean grid',ocean_grid)
@@ -299,7 +301,7 @@ for epoch in range(0, num_epochs):  # loop over the dataset multiple times
 
         # forward + backward + optimize
 #        output,_,_,_,_,_,_ = net(input_batch.cuda())
-        output = Eulerstep(net,input_batch.cuda())
+        output = PECstep(net,input_batch.cuda())
         print('shape of FNO2D output',output.shape)
         #        loss = regular_loss(output, label_batch_crop.cuda())
         # print statistics
@@ -307,7 +309,7 @@ for epoch in range(0, num_epochs):  # loop over the dataset multiple times
 #        loss = ocean_loss(output, label_batch_crop.cuda(),(torch.tensor(ocean_grid)).cuda())
         loss.backward()
         optimizer.step()
-        output_val = Eulerstep(net,(psi_test_input_Tr_torch_norm_level1[0:num_samples,:,0:Nlat,0:Nlon].reshape([num_samples,1,Nlat,Nlon])).permute(0,2,3,1))
+        output_val = PECstep(net,(psi_test_input_Tr_torch_norm_level1[0:num_samples,:,0:Nlat,0:Nlon].reshape([num_samples,1,Nlat,Nlon])).permute(0,2,3,1))
         val_loss = spectral_loss(output_val, (psi_test_label_Tr_torch_norm_level1[0:num_samples,:,0:Nlat,0:Nlon].reshape([num_samples,1,Nlat,Nlon])).permute(0,2,3,1).cuda(),wavenum_init,wavenum_init_ydir,lamda_reg,(torch.tensor(ocean_grid)).cuda())
 #        val_loss = ocean_loss(output_val, psi_test_label_Tr_torch[0:num_samples,:,0:Nlat-2,0:Nlon-1].reshape([num_samples,1,Nlat-2,Nlon-1]).cuda(),(torch.tensor(ocean_grid)).cuda())
         if step % 100 == 0:    # print every 2000 mini-batches
@@ -318,7 +320,7 @@ for epoch in range(0, num_epochs):  # loop over the dataset multiple times
             running_loss = 0.0
 print('Finished Training')
 
-torch.save(net.state_dict(), './BNN_FNO2D_Eulerstep_MSLHF_ocean_spectral_loss_modes_'+str(modes)+'_wavenum'+str(wavenum_init)+'lead'+str(lead)+'.pt')
+torch.save(net.state_dict(), './BNN_FNO2D_PECstep_MSLHF_ocean_spectral_loss_modes_'+str(modes)+'_wavenum'+str(wavenum_init)+'lead'+str(lead)+'.pt')
 
 print('BNN Model Saved')
 
@@ -335,12 +337,12 @@ for k in range(0,M):
 
   if (k==0):
 
-    out = (Eulerstep(net,(psi_test_input_Tr_torch_norm_level1[k,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).permute(0,2,3,1).cuda()))
+    out = (PECstep(net,(psi_test_input_Tr_torch_norm_level1[k,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).permute(0,2,3,1).cuda()))
     autoreg_pred[k,:,:,:] = (out.permute(0,3,1,2)).detach().cpu().numpy()
 
   else:
 
-    out = (Eulerstep(net,(torch.from_numpy(autoreg_pred[k-1,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).float()).permute(0,2,3,1).cuda()))
+    out = (PECstep(net,(torch.from_numpy(autoreg_pred[k-1,:,0:Nlat,0:Nlon].reshape([1,1,Nlat,Nlon])).float()).permute(0,2,3,1).cuda()))
     autoreg_pred[k,:,:,:] = (out.permute(0,3,1,2)).detach().cpu().numpy()
 
 
@@ -351,6 +353,6 @@ STD_test_level1 = STD_test_level1.detach().cpu().numpy()
 matfiledata = {}
 matfiledata[u'prediction'] = autoreg_pred*STD_test_level1+M_test_level1
 matfiledata[u'Truth'] = psi_test_label_Tr
-hdf5storage.write(matfiledata, '.', path_outputs+'predicted_FNO_2D_eulerstep_MSLHF_ocean_spectral_modes_'+str(modes)+'train_wavenumber'+str(wavenum_init)+'lead'+str(lead)+'lambda_'+str(lamda_reg)+'.mat', matlab_compatible=True)
+hdf5storage.write(matfiledata, '.', path_outputs+'predicted_FNO_2D_PECstep_MSLHF_ocean_spectral_modes_'+str(modes)+'train_wavenumber'+str(wavenum_init)+'lead'+str(lead)+'lambda_'+str(lamda_reg)+'.mat', matlab_compatible=True)
 
 print('Saved Predictions')
